@@ -36,7 +36,7 @@ func (cb *codeBuffer) DecrementIndent() {
 }
 
 func (cb *codeBuffer) AddLine(format string, a ...any) {
-	line := fmt.Sprintf(cb.indentSpaces()+format, a)
+	line := fmt.Sprintf(cb.indentSpaces()+format, a...)
 	cb.lines = append(cb.lines, line)
 }
 
@@ -48,12 +48,12 @@ func (cb *codeBuffer) WriteTo(other CodeBuffer) {
 
 func (cb *codeBuffer) Write(w *bufio.Writer) error {
 	for _, line := range cb.lines {
-		_, err := w.WriteString(line)
+		_, err := w.WriteString(line + "\n")
 		if err != nil {
 			return err
 		}
 	}
-	return nil
+	return w.Flush()
 }
 
 func (cb *codeBuffer) indentSpaces() string {

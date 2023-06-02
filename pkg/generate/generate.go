@@ -27,27 +27,41 @@ func Run(packageName, in, out *string) error {
 		if !entry.IsDir() {
 			data, err := os.ReadFile(filepath.Join(*in, entry.Name()))
 			if err != nil {
-				return err
+				return fmt.Errorf("problem reading file '%s': %w", entry.Name(), err)
 			}
 
 			spec := model.Message{}
-			err = json.Unmarshal(data, &spec)
+			err = json.Unmarshal(skipCommentLines(data), &spec)
 			if err != nil {
-				return err
+				return fmt.Errorf("problem unmarshalling json in '%s': %w", entry.Name(), err)
 			}
 
 			filename, cb, err := generateFile(*packageName, spec)
 			if err != nil {
-				return err
+				return fmt.Errorf("problem generating file for '%s': %w", entry.Name(), err)
 			}
 			err = writeFile(filepath.Join(*out, filename), cb)
 			if err != nil {
-				return err
+				return fmt.Errorf("problem writing file '%s': %w", filename, err)
 			}
 		}
 	}
 
 	return nil
+}
+
+func skipCommentLines(data []byte) []byte {
+	dataStr := string(data)
+	var sb strings.Builder
+
+	for _, s := range strings.Split(dataStr, "\n") {
+		if !strings.HasPrefix(s, "//") {
+			sb.WriteString(s)
+			sb.WriteString("\n")
+		}
+	}
+
+	return []byte(sb.String())
 }
 
 func generateFile(packageName string, spec model.Message) (string, util.CodeBuffer, error) {
@@ -57,13 +71,23 @@ func generateFile(packageName string, spec model.Message) (string, util.CodeBuff
 
 	cb.AddLine("import \"encoding/binary\"")
 
-	cb.AddLine("type %s struct{", spec.Name)
+	cb.AddLine("type %s struct {", spec.Name)
 	cb.IncrementIndent()
 	for _, field := range spec.Fields {
-		cb.AddLine("%s %s", capitalize(field.Name), field.FieldType)
+		cb.AddLine("%s %s", capitalize(field.Name), field.Type)
 	}
 	cb.DecrementIndent()
 	cb.AddLine("}")
+
+	for _, cs := range spec.CommonStructs {
+		cb.AddLine("type %s struct {", cs.Name)
+		cb.IncrementIndent()
+		for _, field := range cs.Fields {
+			cb.AddLine("%s %s", capitalize(field.Name), field.Type)
+		}
+		cb.DecrementIndent()
+		cb.AddLine("}")
+	}
 
 	cb.AddLine("func Read%s(data []bytes, version int) (%s, error) {", spec.Name, spec.Name)
 	cb.IncrementIndent()
@@ -74,7 +98,9 @@ func generateFile(packageName string, spec model.Message) (string, util.CodeBuff
 		if versions {
 			cb.IncrementIndent()
 		}
-		switch field.FieldType {
+		// TODO: Handle arrays (ex: []string vs string)
+		// TODO: Handle using common structs
+		switch field.Type {
 		case "string":
 			addReadString(cb, field.Name)
 		case "int32":
@@ -82,28 +108,28 @@ func generateFile(packageName string, spec model.Message) (string, util.CodeBuff
 		case "int64":
 			cb.AddLine("res.%s = int64(binary.BigEndian().Uint64(data))", capitalize(field.Name))
 		default:
-			return "", nil, fmt.Errorf("unrecognized field type: %s", field.FieldType)
+			return "", nil, fmt.Errorf("unrecognized field type: %s", field.Type)
 		}
 		if versions {
 			cb.DecrementIndent()
-			if field.DefaultVal != nil {
+			if field.Default != nil {
 				cb.AddLine("} else {")
 				cb.IncrementIndent()
-				switch field.FieldType {
+				switch field.Type {
 				case "string":
-					defaultString, ok := (*field.DefaultVal).(string)
+					defaultString, ok := (*field.Default).(string)
 					if !ok {
-						return "", nil, fmt.Errorf("unexpected value type for string default: %v (%T)", *field.DefaultVal, *field.DefaultVal)
+						return "", nil, fmt.Errorf("unexpected value type for string default: %v (%T)", *field.Default, *field.Default)
 					}
 					cb.AddLine("res.%s = %s", capitalize(field.Name), defaultString)
 				case "int32", "int64":
-					defaultInt, ok := (*field.DefaultVal).(int)
+					defaultInt, ok := (*field.Default).(int)
 					if !ok {
-						return "", nil, fmt.Errorf("unexpected value type for int default: %v (%T)", *field.DefaultVal, *field.DefaultVal)
+						return "", nil, fmt.Errorf("unexpected value type for int default: %v (%T)", *field.Default, *field.Default)
 					}
 					cb.AddLine("res.%s = %d", capitalize(field.Name), defaultInt)
 				default:
-					return "", nil, fmt.Errorf("unrecognized field type: %s", field.FieldType)
+					return "", nil, fmt.Errorf("unrecognized field type: %s", field.Type)
 				}
 				cb.DecrementIndent()
 			}
@@ -116,7 +142,7 @@ func generateFile(packageName string, spec model.Message) (string, util.CodeBuff
 	// TODO: Support tagged fields
 	// https://cwiki.apache.org/confluence/display/KAFKA/KIP-482%3A+The+Kafka+Protocol+should+Support+Optional+Tagged+Fields
 
-	return spec.Name, cb, nil
+	return spec.Name + ".go", cb, nil
 }
 
 func capitalize(s string) string {
