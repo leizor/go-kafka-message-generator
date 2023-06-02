@@ -25,7 +25,7 @@ func main() {
 			}
 		},
 	}
-	generateCmd.Flags().StringVarP(&packageName, "package", "m", "", "The go package name to use in generated files")
+	generateCmd.Flags().StringVarP(&packageName, "package", "p", "", "The go package name to use in generated files")
 	generateCmd.Flags().StringVarP(&input, "input", "i", "", "The input directory to use")
 	generateCmd.Flags().StringVarP(&output, "output", "o", "", "The output directory to create")
 	for _, f := range []string{"package", "input", "output"} {
