@@ -64,6 +64,8 @@ func skipCommentLines(data []byte) []byte {
 	return []byte(sb.String())
 }
 
+var arrayRegex = regexp.MustCompile("^(\\[])?(.+)$")
+
 func generateFile(packageName string, spec model.Message) (string, util.CodeBuffer, error) {
 	cb := util.NewCodeBuffer()
 
@@ -98,17 +100,45 @@ func generateFile(packageName string, spec model.Message) (string, util.CodeBuff
 		if versions {
 			cb.IncrementIndent()
 		}
-		// TODO: Handle arrays (ex: []string vs string)
 		// TODO: Handle using common structs
-		switch field.Type {
-		case "string":
-			addReadString(cb, field.Name)
-		case "int32":
-			cb.AddLine("res.%s = int32(binary.BigEndian().Uint32(data))", capitalize(field.Name))
-		case "int64":
-			cb.AddLine("res.%s = int64(binary.BigEndian().Uint64(data))", capitalize(field.Name))
-		default:
-			return "", nil, fmt.Errorf("unrecognized field type: %s", field.Type)
+		m := arrayRegex.FindStringSubmatch(field.Type)
+		if m[1] == "[]" {
+			cb.AddLine("{")
+			cb.IncrementIndent()
+			cb.AddLine("arrLen, err := binary.ReadUvarint(data)")
+			cb.AddLine("if err != nil {")
+			cb.IncrementIndent()
+			cb.AddLine("return res, err")
+			cb.DecrementIndent()
+			cb.AddLine("}")
+			cb.AddLine("arrLen--")
+			cb.AddLine("for i := 0; i < arrLen; i++ {")
+			cb.IncrementIndent()
+			switch m[2] {
+			case "string":
+				addReadString(cb, field.Name, true)
+			case "int32":
+				cb.AddLine("res.%s = append(res.%s, int32(binary.BigEndian().Uint32(data))", capitalize(field.Name), capitalize(field.Name))
+			case "int64":
+				cb.AddLine("res.%s = append(res.%s, int32(binary.BigEndian().Uint64(data))", capitalize(field.Name), capitalize(field.Name))
+			default:
+				return "", nil, fmt.Errorf("unrecognized field type: %s", m[2])
+			}
+			cb.DecrementIndent()
+			cb.AddLine("}")
+			cb.DecrementIndent()
+			cb.AddLine("}")
+		} else {
+			switch m[2] {
+			case "string":
+				addReadString(cb, field.Name, false)
+			case "int32":
+				cb.AddLine("res.%s = int32(binary.BigEndian().Uint32(data))", capitalize(field.Name))
+			case "int64":
+				cb.AddLine("res.%s = int64(binary.BigEndian().Uint64(data))", capitalize(field.Name))
+			default:
+				return "", nil, fmt.Errorf("unrecognized field type: %s", m[2])
+			}
 		}
 		if versions {
 			cb.DecrementIndent()
@@ -169,23 +199,27 @@ func addVersionIfClause(cb util.CodeBuffer, versions string) bool {
 	return false
 }
 
-func addReadString(cb util.CodeBuffer, fieldName string) {
+func addReadString(cb util.CodeBuffer, fieldName string, appendToArray bool) {
 	cb.AddLine("{")
 	cb.IncrementIndent()
 
-	cb.AddLine("length := binary.BigEndian().Uint16(data)")
-	cb.AddLine("if length < 0 {")
+	cb.AddLine("stringLen := binary.BigEndian().Uint16(data)")
+	cb.AddLine("if stringLen < 0 {")
 	cb.IncrementIndent()
 	cb.AddLine("return res, fmt.Errorf(\"non-nullable field group was serialized as null\")")
 	cb.DecrementIndent()
-	cb.AddLine("} else if length > 0x7fff {")
+	cb.AddLine("} else if stringLen > 0x7fff {")
 	cb.IncrementIndent()
-	cb.AddLine("return res, fmt.Errorf(\"string field group had invalid length \" + length)")
+	cb.AddLine("return res, fmt.Errorf(\"string field group had invalid length \" + stringLen)")
 	cb.DecrementIndent()
 	cb.AddLine("} else {")
 	cb.IncrementIndent()
-	cb.AddLine("res.%s = string(data[0:length])", capitalize(fieldName))
-	cb.AddLine("data = data[length:]")
+	if appendToArray {
+		cb.AddLine("res.%s = append(res.%s, string(data[0:stringLen]))", capitalize(fieldName), capitalize(fieldName))
+	} else {
+		cb.AddLine("res.%s = string(data[0:stringLen])", capitalize(fieldName))
+	}
+	cb.AddLine("data = data[stringLen:]")
 	cb.DecrementIndent()
 	cb.AddLine("}")
 
