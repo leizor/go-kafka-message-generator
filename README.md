@@ -8,5 +8,5 @@ make build
 
 ## To run
 ```shell
-./kmg generate -i path/to/kafka/messages/jsons/dir -o output/dir -p packagename
+./kmg generate -i path/to/kafka/messages/jsons/dir -i path/to/other/kafka/messages/json/dir -o output/dir -p packagename
 ```
