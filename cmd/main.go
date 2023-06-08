@@ -16,7 +16,8 @@ func main() {
 		packageName, output, input string
 	)
 	generateCmd := &cobra.Command{
-		Use: "generate",
+		Use:   "generate",
+		Short: "Generate go serializers/deserializers for Kafka messages",
 		Run: func(cmd *cobra.Command, args []string) {
 			err := generate.Run(&packageName, &input, &output)
 			if err != nil {
