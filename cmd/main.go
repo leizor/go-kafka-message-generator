@@ -13,7 +13,8 @@ const version = "0.01"
 
 func main() {
 	var (
-		packageName, output, input string
+		input               []string
+		packageName, output string
 	)
 	generateCmd := &cobra.Command{
 		Use:   "generate",
@@ -27,7 +28,7 @@ func main() {
 		},
 	}
 	generateCmd.Flags().StringVarP(&packageName, "package", "p", "", "The go package name to use in generated files")
-	generateCmd.Flags().StringVarP(&input, "input", "i", "", "The input directory to use")
+	generateCmd.Flags().StringArrayVarP(&input, "input", "i", []string{""}, "The input directory to use")
 	generateCmd.Flags().StringVarP(&output, "output", "o", "", "The output directory to create")
 	for _, f := range []string{"package", "input", "output"} {
 		err := generateCmd.MarkFlagRequired(f)

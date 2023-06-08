@@ -14,37 +14,39 @@ import (
 	"github.com/leizor/go-kafka-message-generator/pkg/util"
 )
 
-func Run(packageName, in, out *string) error {
+func Run(packageName *string, in *[]string, out *string) error {
 	err := os.MkdirAll(*out, os.ModePerm)
 	if err != nil {
 		return err
 	}
 
-	dirEntries, err := os.ReadDir(*in)
-	if err != nil {
-		return err
-	}
-	for _, entry := range dirEntries {
-		if !entry.IsDir() {
-			data, err := os.ReadFile(filepath.Join(*in, entry.Name()))
-			if err != nil {
-				return fmt.Errorf("problem reading file '%s': %w", entry.Name(), err)
-			}
+	for _, dir := range *in {
+		dirEntries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, entry := range dirEntries {
+			if !entry.IsDir() {
+				data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+				if err != nil {
+					return fmt.Errorf("problem reading file '%s': %w", entry.Name(), err)
+				}
 
-			spec := model.Message{}
-			err = json.Unmarshal(skipCommentLines(data), &spec)
-			if err != nil {
-				return fmt.Errorf("problem unmarshalling json in '%s': %w", entry.Name(), err)
-			}
+				spec := model.Message{}
+				err = json.Unmarshal(skipCommentLines(data), &spec)
+				if err != nil {
+					return fmt.Errorf("problem unmarshalling json in '%s': %w", entry.Name(), err)
+				}
 
-			cb := util.NewCodeBuffer()
-			filename, err := generateFile(*packageName, spec, cb)
-			if err != nil {
-				return fmt.Errorf("problem generating file for '%s': %w", entry.Name(), err)
-			}
-			err = writeFile(filepath.Join(*out, filename), cb)
-			if err != nil {
-				return fmt.Errorf("problem writing file '%s': %w", filename, err)
+				cb := util.NewCodeBuffer()
+				filename, err := generateFile(*packageName, spec, cb)
+				if err != nil {
+					return fmt.Errorf("problem generating file for '%s': %w", entry.Name(), err)
+				}
+				err = writeFile(filepath.Join(*out, filename), cb)
+				if err != nil {
+					return fmt.Errorf("problem writing file '%s': %w", filename, err)
+				}
 			}
 		}
 	}
