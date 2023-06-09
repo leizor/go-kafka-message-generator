@@ -89,14 +89,21 @@ func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (s
 
 	cb.AddLine("type %s struct {", spec.Name)
 	cb.IncrementIndent()
-	addStructFields(cb, spec.Fields)
+	addStructFields(cb, spec.Name, spec.Fields)
 	cb.DecrementIndent()
 	cb.AddLine("}")
 
 	for _, cs := range spec.CommonStructs {
-		err := addCommonStruct(cb, cs)
+		err := addCommonStruct(cb, spec.Name, cs)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("problem adding common struct: %w", err)
+		}
+	}
+
+	for _, inlineStruct := range collectInlineStructs(spec.Fields) {
+		err := addInlineStruct(cb, spec.Name, inlineStruct)
+		if err != nil {
+			return "", fmt.Errorf("problem adding inline struct: %w", err)
 		}
 	}
 
@@ -105,7 +112,7 @@ func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (s
 	cb.AddLine("var res %s", spec.Name)
 
 	for _, field := range spec.Fields {
-		err := addReadField(cb, field)
+		err := addReadField(cb, spec.Name, field)
 		if err != nil {
 			return "", err
 		}
@@ -170,7 +177,17 @@ func collectImports(spec model.Message) []string {
 	return imports
 }
 
-func addStructFields(cb util.CodeBuffer, fields []model.MessageField) {
+func collectInlineStructs(fields []model.MessageField) (res []model.MessageField) {
+	for _, field := range fields {
+		if len(field.Fields) > 0 {
+			res = append(res, field)
+			res = append(res, collectInlineStructs(field.Fields)...)
+		}
+	}
+	return res
+}
+
+func addStructFields(cb util.CodeBuffer, name string, fields []model.MessageField) {
 	for _, field := range fields {
 		fieldType := field.Type
 		switch fieldType {
@@ -179,11 +196,21 @@ func addStructFields(cb util.CodeBuffer, fields []model.MessageField) {
 		case "bytes":
 			fieldType = "[]byte"
 		}
-		cb.AddLine("%s %s", capitalize(field.Name), fieldType)
+		if len(field.Fields) > 0 {
+			// This is an inline struct.
+			isArray, ft := deconstructFieldType(fieldType)
+			if isArray {
+				cb.AddLine("%s []%s%s", capitalize(field.Name), name, ft)
+			} else {
+				cb.AddLine("%s %s%s", capitalize(field.Name), name, fieldType)
+			}
+		} else {
+			cb.AddLine("%s %s", capitalize(field.Name), fieldType)
+		}
 	}
 }
 
-func addCommonStruct(cb util.CodeBuffer, cs model.CommonStruct) error {
+func addCommonStruct(cb util.CodeBuffer, name string, cs model.CommonStruct) error {
 	versions := addVersionIfClause(cb, cs.Versions)
 	if versions {
 		cb.IncrementIndent()
@@ -191,7 +218,7 @@ func addCommonStruct(cb util.CodeBuffer, cs model.CommonStruct) error {
 
 	cb.AddLine("type %s struct {", cs.Name)
 	cb.IncrementIndent()
-	addStructFields(cb, cs.Fields)
+	addStructFields(cb, name, cs.Fields)
 	cb.DecrementIndent()
 	cb.AddLine("}")
 
@@ -199,7 +226,7 @@ func addCommonStruct(cb util.CodeBuffer, cs model.CommonStruct) error {
 	cb.IncrementIndent()
 	cb.AddLine("var res %s", capitalize(cs.Name))
 	for _, field := range cs.Fields {
-		err := addReadField(cb, field)
+		err := addReadField(cb, name, field)
 		if err != nil {
 			return err
 		}
@@ -216,7 +243,44 @@ func addCommonStruct(cb util.CodeBuffer, cs model.CommonStruct) error {
 	return nil
 }
 
-func addReadField(cb util.CodeBuffer, field model.MessageField) error {
+// addInlineStruct adds inline structs to the code buffer. An inline struct is like a common struct but is not accessed
+// by other readers in the package. In practice, the only difference is that we prepend the message name to the struct
+// name.
+func addInlineStruct(cb util.CodeBuffer, name string, field model.MessageField) error {
+	versions := addVersionIfClause(cb, field.Versions)
+	if versions {
+		cb.IncrementIndent()
+	}
+
+	_, fieldType := deconstructFieldType(field.Type)
+	cb.AddLine("type %s%s struct {", name, fieldType)
+	cb.IncrementIndent()
+	addStructFields(cb, name, field.Fields)
+	cb.DecrementIndent()
+	cb.AddLine("}")
+
+	cb.AddLine("func New%s%s(data []byte) (%s%s, error) {", name, capitalize(fieldType), name, capitalize(fieldType))
+	cb.IncrementIndent()
+	cb.AddLine("var res %s%s", name, capitalize(fieldType))
+	for _, f := range field.Fields {
+		err := addReadField(cb, name, f)
+		if err != nil {
+			return err
+		}
+	}
+	cb.AddLine("return res, nil")
+	cb.DecrementIndent()
+	cb.AddLine("}")
+
+	if versions {
+		cb.DecrementIndent()
+		cb.AddLine("}")
+	}
+
+	return nil
+}
+
+func addReadField(cb util.CodeBuffer, name string, field model.MessageField) error {
 	versions := addVersionIfClause(cb, field.Versions)
 	if versions {
 		cb.IncrementIndent()
@@ -254,7 +318,11 @@ func addReadField(cb util.CodeBuffer, field model.MessageField) error {
 		default:
 			cb.AddLine("{")
 			cb.IncrementIndent()
-			addAllocateCommonStruct(cb, field.Type)
+			if len(field.Fields) > 0 {
+				addAllocateInlineStruct(cb, name, field.Type)
+			} else {
+				addAllocateCommonStruct(cb, field.Type)
+			}
 			cb.AddLine("res.%s = append(res.%s, v)", capitalize(field.Name), capitalize(field.Name))
 			cb.DecrementIndent()
 			cb.AddLine("}")
@@ -283,7 +351,11 @@ func addReadField(cb util.CodeBuffer, field model.MessageField) error {
 		default:
 			cb.AddLine("{")
 			cb.IncrementIndent()
-			addAllocateCommonStruct(cb, field.Type)
+			if len(field.Fields) > 0 {
+				addAllocateInlineStruct(cb, name, field.Type)
+			} else {
+				addAllocateCommonStruct(cb, field.Type)
+			}
 			cb.AddLine("res.%s = v", capitalize(field.Name))
 			cb.DecrementIndent()
 			cb.AddLine("}")
@@ -336,6 +408,18 @@ func addAllocateCommonStruct(cb util.CodeBuffer, fieldType string) {
 	cb.AddLine("if err != nil {")
 	cb.IncrementIndent()
 	cb.AddLine("return res, fmt.Errorf(\"problem building %s: %%w\", err)", capitalize(ft))
+	cb.DecrementIndent()
+	cb.AddLine("}")
+}
+
+func addAllocateInlineStruct(cb util.CodeBuffer, name string, fieldType string) {
+	_, ft := deconstructFieldType(fieldType)
+	constructName := fmt.Sprintf("New%s%s", name, capitalize(ft))
+
+	cb.AddLine("v, err := %s(data)", constructName)
+	cb.AddLine("if err != nil {")
+	cb.IncrementIndent()
+	cb.AddLine("return res, fmt.Errorf(\"problem building %s%s: %%w\", err)", name, capitalize(ft))
 	cb.DecrementIndent()
 	cb.AddLine("}")
 }
