@@ -10,6 +10,7 @@ type CodeBuffer interface {
 	IncrementIndent()
 	DecrementIndent()
 	AddLine(format string, a ...any)
+	NewLine()
 	WriteTo(other CodeBuffer)
 	Write(w *bufio.Writer) error
 }
@@ -38,6 +39,10 @@ func (cb *codeBuffer) DecrementIndent() {
 func (cb *codeBuffer) AddLine(format string, a ...any) {
 	line := fmt.Sprintf(cb.indentSpaces()+format, a...)
 	cb.lines = append(cb.lines, line)
+}
+
+func (cb *codeBuffer) NewLine() {
+	cb.lines = append(cb.lines, "")
 }
 
 func (cb *codeBuffer) WriteTo(other CodeBuffer) {

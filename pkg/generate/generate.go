@@ -78,6 +78,7 @@ func skipCommentLines(data []byte) []byte {
 
 func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (string, error) {
 	cb.AddLine("package %s", packageName)
+	cb.NewLine()
 
 	cb.AddLine("import (")
 	cb.IncrementIndent()
@@ -86,18 +87,21 @@ func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (s
 	}
 	cb.DecrementIndent()
 	cb.AddLine(")")
+	cb.NewLine()
 
 	cb.AddLine("type %s struct {", spec.Name)
 	cb.IncrementIndent()
 	addStructFields(cb, spec.Name, spec.Fields)
 	cb.DecrementIndent()
 	cb.AddLine("}")
+	cb.NewLine()
 
 	for _, cs := range spec.CommonStructs {
 		err := addCommonStruct(cb, spec.Name, cs)
 		if err != nil {
 			return "", fmt.Errorf("problem adding common struct: %w", err)
 		}
+		cb.NewLine()
 	}
 
 	for _, inlineStruct := range collectInlineStructs(spec.Fields) {
@@ -105,11 +109,13 @@ func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (s
 		if err != nil {
 			return "", fmt.Errorf("problem adding inline struct: %w", err)
 		}
+		cb.NewLine()
 	}
 
 	cb.AddLine("func Read%s(data []byte, version int) (%s, error) {", spec.Name, spec.Name)
 	cb.IncrementIndent()
 	cb.AddLine("var res %s", spec.Name)
+	cb.NewLine()
 
 	for _, field := range spec.Fields {
 		err := addReadField(cb, spec.Name, field)
@@ -117,6 +123,8 @@ func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (s
 			return "", err
 		}
 	}
+	cb.NewLine()
+
 	cb.AddLine("return res, nil")
 	cb.DecrementIndent()
 	cb.AddLine("}")
