@@ -1,5 +1,7 @@
 # go-kafka-message-generator
-A Kafka message generator, but for Go
+A Kafka message generator, but for Go.
+
+Currently, the generated files only support deserialization.
 
 ## To build
 ```shell
