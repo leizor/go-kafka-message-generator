@@ -89,6 +89,8 @@ func generateFile(packageName string, spec model.Message, cb util.CodeBuffer) (s
 	cb.AddLine(")")
 	cb.NewLine()
 
+	// TODO: Add lowest/highest supported version consts to file.
+
 	cb.AddLine("type %s struct {", spec.Name)
 	cb.IncrementIndent()
 	addStructFields(cb, spec.Name, spec.Fields)
